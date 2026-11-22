@@ -166,10 +166,6 @@ struct MarkdownWriterTests {
 
 /// Documents → Markdown, through the same steps as in the app. Each test works in a fresh
 /// temporary folder (cleaned up in `deinit`).
-///
-/// One test at a time: each waits for textutil on a test thread, and several at once kept the
-/// Stop tests' timers from running while the font tests had the other threads busy.
-@Suite(.serialized)
 final class DocumentMarkdownTests {
     private let dir: URL
 
@@ -188,15 +184,24 @@ final class DocumentMarkdownTests {
         return url
     }
 
-    private func convert(_ input: URL) throws -> String {
-        try String(contentsOf: try DocConv.markdown(input, runner: Runner()), encoding: .utf8)
+    /// Waiting for textutil blocks a thread. Done on one of the test run's own threads, that held
+    /// up the tests that time how fast the main thread and Stop respond.
+    private func convert(_ input: URL) async throws -> String {
+        try await withCheckedThrowingContinuation { done in
+            DispatchQueue.global().async {
+                done.resume(
+                    with: Result {
+                        try String(contentsOf: try DocConv.markdown(input, runner: Runner()), encoding: .utf8)
+                    })
+            }
+        }
     }
 
     private var files: [String] {
         (try? FileManager.default.contentsOfDirectory(atPath: dir.path).sorted()) ?? []
     }
 
-    @Test func markdownSurvivesARoundTripThroughRichText() throws {
+    @Test func markdownSurvivesARoundTripThroughRichText() async throws {
         let source = """
             # Title
 
@@ -210,7 +215,7 @@ final class DocumentMarkdownTests {
             """
         // As the app makes HTML of Markdown, styles included; textutil then reads the HTML.
         let html = try file("sample.html", Markdown.document(body: Markdown.toHTML(source), title: "sample"))
-        let out = try convert(html)
+        let out = try await convert(html)
         #expect(out.hasPrefix("# Title\n\n## Section\n\n"))
         #expect(out.contains("Some **bold**, *italic* and `code`, plus a [link](https://example.com/page)."))
         #expect(out.contains("- one\n- two\n  1. inner\n"))
@@ -218,28 +223,28 @@ final class DocumentMarkdownTests {
         #expect(files == ["sample.html", "sample.md"])  // The temporary RTF is gone again.
     }
 
-    @Test func markdownIsCopiedUnchanged() throws {
+    @Test func markdownIsCopiedUnchanged() async throws {
         let source = "# Notes\n\nKept *exactly* as written.  \n"
         let input = try file("notes.md", source)
-        #expect(try convert(input) == source)
+        #expect(try await convert(input) == source)
         #expect(files == ["notes 2.md", "notes.md"])
     }
 
-    @Test func plainTextIsEscaped() throws {
-        #expect(
-            try convert(try file("notes.txt", "# Not a heading\n\n*Not italic*\n"))
-                == "\\# Not a heading\n\n\\*Not italic\\*\n")
+    @Test func plainTextIsEscaped() async throws {
+        let input = try file("notes.txt", "# Not a heading\n\n*Not italic*\n")
+        #expect(try await convert(input) == "\\# Not a heading\n\n\\*Not italic\\*\n")
     }
 
-    @Test func sourceCodeIsOneCodeBlock() throws {
-        let code = "let s = \"```\"\nprint(s)\n"
-        #expect(try convert(try file("main.swift", code)) == "````swift\nlet s = \"```\"\nprint(s)\n````\n")
+    @Test func sourceCodeIsOneCodeBlock() async throws {
+        let input = try file("main.swift", "let s = \"```\"\nprint(s)\n")
+        #expect(try await convert(input) == "````swift\nlet s = \"```\"\nprint(s)\n````\n")
     }
 
-    @Test func failedConversionLeavesNoFile() throws {
+    @Test func failedConversionLeavesNoFile() async throws {
         // The original vanished before its turn came (a batch can take a while).
         for name in ["gone.docx", "gone.txt"] {
-            #expect(throws: (any Error).self, "\(name)") { try self.convert(self.dir.appendingPathComponent(name)) }
+            let input = dir.appendingPathComponent(name)
+            await #expect(throws: (any Error).self, "\(name)") { try await self.convert(input) }
         }
         #expect(files == [])
     }
