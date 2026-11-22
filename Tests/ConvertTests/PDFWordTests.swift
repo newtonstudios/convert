@@ -198,9 +198,32 @@ final class PDFWordTests {
         #expect(bodyColor.redComponent < 0.02 && bodyColor.greenComponent < 0.02 && bodyColor.blueComponent < 0.02)
     }
 
-    @Test func pdfWithoutTextThrowsAndLeavesNoFile() throws {
+    @Test func markdownHasTheHeadingParagraphsAndList() throws {
+        let title = Text(string: "Title", y: 730, size: 20, bold: true)
+        let items = ["• \(second[0])", "• \(second[1])"]
+        let list = items.enumerated().map { Text(string: $1, y: 600 - CGFloat($0) * 14) }
+        let input = try makePDF([[title] + paragraph(first, top: 700) + list])
+        let out = try convert(input, to: "pdf-md")
+        #expect(out.pathExtension == "md")
+        let text = try String(contentsOf: out, encoding: .utf8)
+        let blocks = text.components(separatedBy: "\n\n")
+        #expect(blocks.count == 3)
+        #expect(blocks.first == "# Title")
+        #expect(blocks.dropFirst().first.map(words) == words(first.joined(separator: " ")))
+        #expect(blocks.last == "- \(second[0])\n- \(second[1])\n")
+    }
+
+    @Test func markdownTargetsHaveNoSettings() throws {
+        // Nothing under "Advanced": no resolution or paper size applies to text.
+        #expect(try #require(Targets.byID("pdf-md")).isPDFText)
+        #expect(try #require(Targets.byID("pdf-md")).hasSettings == false)
+        #expect(try #require(Targets.byID("md")).hasSettings == false)
+    }
+
+    @Test(arguments: ["pdf-docx", "pdf-md"])
+    func pdfWithoutTextThrowsAndLeavesNoFile(id: String) throws {
         let input = try makePDF([[]])
-        let target = try #require(Targets.byID("pdf-docx"))
+        let target = try #require(Targets.byID(id))
         let error = #expect(throws: (any Error).self) {
             try PDFConv.convert(input, target, ConvSettings(), runner: Runner()) { _ in }
         }
@@ -216,7 +239,8 @@ final class PDFWordTests {
         #expect(files == ["sample.pdf"])
     }
 
-    @Test func passwordProtectedPDFThrows() throws {
+    @Test(arguments: ["pdf-docx", "pdf-md"])
+    func passwordProtectedPDFThrows(id: String) throws {
         let input = dir.appendingPathComponent("locked.pdf")
         var bounds = CGRect(x: 0, y: 0, width: 200, height: 200)
         let info = [kCGPDFContextUserPassword: "secret", kCGPDFContextOwnerPassword: "secret"] as CFDictionary
@@ -225,7 +249,7 @@ final class PDFWordTests {
         CTLineDraw(try #require(Self.line(Text(string: "Hidden", y: 100))), context)
         context.endPDFPage()
         context.closePDF()
-        let error = #expect(throws: (any Error).self) { try self.convert(input, to: "pdf-docx") }
+        let error = #expect(throws: (any Error).self) { try self.convert(input, to: id) }
         #expect(error?.localizedDescription == "This PDF is password-protected")
         #expect(files == ["locked.pdf"])
     }

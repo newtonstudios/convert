@@ -154,7 +154,8 @@ final class StopTests {
         let runner = Runner()
         runner.cancel()
         for (input, id) in [
-            (png, "heic"), (pdf, "pdf-png"), (pdf, "pdf-txt"), (text, "docx"), (text, "pdf-doc"), (text, "md"),
+            (png, "heic"), (pdf, "pdf-png"), (pdf, "pdf-txt"), (pdf, "pdf-md"), (text, "docx"), (text, "pdf-doc"),
+            (text, "md"),
         ] {
             let target = try #require(Targets.byID(id))
             await #expect(throws: StoppedError.self, "\(id)") {

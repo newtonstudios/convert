@@ -266,27 +266,23 @@ enum PDFConv {
         return [made]
     }
 
-    /// PDF → Word, OpenDocument or Rich Text: the text, rebuilt into paragraphs (see PDFText),
-    /// with its fonts, sizes and colours. No images, tables or page layout ("text only").
+    /// PDF → Word, OpenDocument, Rich Text or Markdown: the text, rebuilt into paragraphs (see
+    /// PDFText), with its fonts, sizes and colours (Markdown keeps headings, bold, italic and
+    /// lists of those). No images, tables or page layout ("text only").
     static func document(
         _ input: URL, _ t: Target, runner: Runner, progress: @Sendable (Double) -> Void
     ) throws -> URL {
-        guard let doc = PDFDocument(url: input) else { throw ConvertError("Couldn't open this PDF") }
-        if doc.isLocked { throw ConvertError("This PDF is password-protected") }
-        let text = NSMutableAttributedString()
-        for i in 0..<doc.pageCount {
-            try runner.checkCancelled()
-            if let page = doc.page(at: i) { text.append(PDFText.paragraphs(on: page)) }
-            progress(Double(i + 1) / Double(doc.pageCount))
+        let text = try styledText(of: input, runner: runner, progress: progress)
+        let data: Data
+        if t.ext == "md" {
+            data = Data(MarkdownWriter.markdown(from: text).utf8)
+        } else {
+            let types: [String: NSAttributedString.DocumentType] = [
+                "docx": .officeOpenXML, "odt": .openDocument, "rtf": .rtf,
+            ]
+            let attrs: [NSAttributedString.DocumentAttributeKey: Any] = [.documentType: types[t.ext] ?? .rtf]
+            data = try text.data(from: NSRange(location: 0, length: text.length), documentAttributes: attrs)
         }
-        guard text.string.rangeOfCharacter(from: CharacterSet.whitespacesAndNewlines.inverted) != nil else {
-            throw ConvertError("This PDF contains no extractable text")
-        }
-        let types: [String: NSAttributedString.DocumentType] = [
-            "docx": .officeOpenXML, "odt": .openDocument, "rtf": .rtf,
-        ]
-        let attrs: [NSAttributedString.DocumentAttributeKey: Any] = [.documentType: types[t.ext] ?? .rtf]
-        let data = try text.data(from: NSRange(location: 0, length: text.length), documentAttributes: attrs)
         try runner.checkCancelled()
         let out = try uniqueOutput(for: input, ext: t.ext)
         do {
@@ -298,5 +294,23 @@ enum PDFConv {
             throw error
         }
         return out
+    }
+
+    /// Every page's paragraphs, one after the other. Stop takes effect between pages.
+    private static func styledText(
+        of input: URL, runner: Runner, progress: @Sendable (Double) -> Void
+    ) throws -> NSAttributedString {
+        guard let doc = PDFDocument(url: input) else { throw ConvertError("Couldn't open this PDF") }
+        if doc.isLocked { throw ConvertError("This PDF is password-protected") }
+        let text = NSMutableAttributedString()
+        for i in 0..<doc.pageCount {
+            try runner.checkCancelled()
+            if let page = doc.page(at: i) { text.append(PDFText.paragraphs(on: page)) }
+            progress(Double(i + 1) / Double(doc.pageCount))
+        }
+        guard text.string.rangeOfCharacter(from: CharacterSet.whitespacesAndNewlines.inverted) != nil else {
+            throw ConvertError("This PDF contains no extractable text")
+        }
+        return text
     }
 }
