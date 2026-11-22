@@ -180,6 +180,7 @@ enum Targets {
                     ("rtf", "Rich Text (RTF)", "rtf"),
                     ("txt", "Plain Text", "txt"),
                     ("html", "HTML", "html"),
+                    ("md", "Markdown", "md"),
                 ])
             + t(
                 .pdfPages,

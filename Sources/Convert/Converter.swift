@@ -39,6 +39,9 @@ enum Converter {
                 try await DocConv.toPDF(input, out, a4: s.paperA4, runner: runner)
                 return [out]
             }
+            if t.id == "md" {
+                return [try await Task.detached { try DocConv.markdown(input, runner: runner) }.value]
+            }
             return [try await Task.detached { try DocConv.textutil(input, t, runner: runner) }.value]
 
         case .pdfPages:

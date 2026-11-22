@@ -52,6 +52,54 @@ enum DocConv {
         return out
     }
 
+    /// Document → Markdown. Markdown is copied as it is, plain text keeps its words as written,
+    /// and source code becomes one code block. Everything else goes to RTF first: textutil reads
+    /// every format, and RTF (unlike HTML) can be loaded away from the main thread.
+    static func markdown(_ input: URL, runner: Runner) throws -> URL {
+        try runner.checkCancelled()
+        let ext = input.pathExtension.lowercased()
+        let text: String?  // Nil: the file is Markdown already.
+        if Markdown.isMarkdown(input) {
+            text = nil
+        } else if ext == "txt" || ext == "text" {
+            text = MarkdownWriter.markdown(fromPlainText: try String(contentsOf: input, encoding: .utf8))
+        } else if isPlain(input) {
+            text = MarkdownWriter.codeBlock(try String(contentsOf: input, encoding: .utf8), language: ext)
+        } else {
+            text = MarkdownWriter.markdown(from: try styledText(of: input))
+        }
+        try runner.checkCancelled()
+        let out = try uniqueOutput(for: input, ext: "md")
+        do {
+            if let text {
+                try Data(text.utf8).write(to: out, options: .atomic)
+            } else {
+                try FileManager.default.copyItem(at: input, to: out)
+            }
+            try runner.checkCancelled()
+        } catch {
+            // Stopped or failed: no half-written or unwanted file stays behind.
+            try? FileManager.default.removeItem(at: out)
+            throw error
+        }
+        return out
+    }
+
+    /// The document as styled text, by way of an RTF file in a temp folder that's removed again.
+    private static func styledText(of input: URL) throws -> NSAttributedString {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let rtf = dir.appendingPathComponent("document.rtf")
+        try runSync("/usr/bin/textutil", ["-convert", "rtf", "-output", rtf.path, input.path])
+        // textutil reports success even when it couldn't read the file and wrote nothing.
+        guard FileManager.default.fileExists(atPath: rtf.path) else {
+            throw ConvertError("Couldn't read this document")
+        }
+        return try NSAttributedString(
+            url: rtf, options: [.documentType: NSAttributedString.DocumentType.rtf], documentAttributes: nil)
+    }
+
     /// The app's own executable, set at launch. Nil in unit tests, which have no app to start.
     static var worker: URL?
 

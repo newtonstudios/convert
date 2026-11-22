@@ -163,3 +163,84 @@ struct MarkdownWriterTests {
         #expect(MarkdownWriter.codeBlock("x = ````y````") == "`````\nx = ````y````\n`````\n")
     }
 }
+
+/// Documents → Markdown, through the same steps as in the app. Each test works in a fresh
+/// temporary folder (cleaned up in `deinit`).
+///
+/// One test at a time: each waits for textutil on a test thread, and several at once kept the
+/// Stop tests' timers from running while the font tests had the other threads busy.
+@Suite(.serialized)
+final class DocumentMarkdownTests {
+    private let dir: URL
+
+    init() throws {
+        dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: false)
+    }
+
+    deinit {
+        try? FileManager.default.removeItem(at: dir)
+    }
+
+    private func file(_ name: String, _ contents: String) throws -> URL {
+        let url = dir.appendingPathComponent(name)
+        try contents.write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
+
+    private func convert(_ input: URL) throws -> String {
+        try String(contentsOf: try DocConv.markdown(input, runner: Runner()), encoding: .utf8)
+    }
+
+    private var files: [String] {
+        (try? FileManager.default.contentsOfDirectory(atPath: dir.path).sorted()) ?? []
+    }
+
+    @Test func markdownSurvivesARoundTripThroughRichText() throws {
+        let source = """
+            # Title
+
+            ## Section
+
+            Some **bold**, *italic* and `code`, plus a [link](https://example.com/page).
+
+            - one
+            - two
+              1. inner
+            """
+        // As the app makes HTML of Markdown, styles included; textutil then reads the HTML.
+        let html = try file("sample.html", Markdown.document(body: Markdown.toHTML(source), title: "sample"))
+        let out = try convert(html)
+        #expect(out.hasPrefix("# Title\n\n## Section\n\n"))
+        #expect(out.contains("Some **bold**, *italic* and `code`, plus a [link](https://example.com/page)."))
+        #expect(out.contains("- one\n- two\n  1. inner\n"))
+        #expect(out.hasSuffix("\n") && !out.hasSuffix("\n\n"))
+        #expect(files == ["sample.html", "sample.md"])  // The temporary RTF is gone again.
+    }
+
+    @Test func markdownIsCopiedUnchanged() throws {
+        let source = "# Notes\n\nKept *exactly* as written.  \n"
+        let input = try file("notes.md", source)
+        #expect(try convert(input) == source)
+        #expect(files == ["notes 2.md", "notes.md"])
+    }
+
+    @Test func plainTextIsEscaped() throws {
+        #expect(
+            try convert(try file("notes.txt", "# Not a heading\n\n*Not italic*\n"))
+                == "\\# Not a heading\n\n\\*Not italic\\*\n")
+    }
+
+    @Test func sourceCodeIsOneCodeBlock() throws {
+        let code = "let s = \"```\"\nprint(s)\n"
+        #expect(try convert(try file("main.swift", code)) == "````swift\nlet s = \"```\"\nprint(s)\n````\n")
+    }
+
+    @Test func failedConversionLeavesNoFile() throws {
+        // The original vanished before its turn came (a batch can take a while).
+        for name in ["gone.docx", "gone.txt"] {
+            #expect(throws: (any Error).self, "\(name)") { try self.convert(self.dir.appendingPathComponent(name)) }
+        }
+        #expect(files == [])
+    }
+}

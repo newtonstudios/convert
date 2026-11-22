@@ -153,7 +153,9 @@ final class StopTests {
         let before = contents
         let runner = Runner()
         runner.cancel()
-        for (input, id) in [(png, "heic"), (pdf, "pdf-png"), (pdf, "pdf-txt"), (text, "docx"), (text, "pdf-doc")] {
+        for (input, id) in [
+            (png, "heic"), (pdf, "pdf-png"), (pdf, "pdf-txt"), (text, "docx"), (text, "pdf-doc"), (text, "md"),
+        ] {
             let target = try #require(Targets.byID(id))
             await #expect(throws: StoppedError.self, "\(id)") {
                 try await Converter.convert(input, to: target, settings: ConvSettings(), runner: runner) { _ in }
