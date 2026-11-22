@@ -7,12 +7,16 @@ import AppKit
 /// text's links, lists from the paragraph style or from a bullet or number at the start.
 /// Everything else is escaped, so the Markdown reads the same as the original.
 enum MarkdownWriter {
-    /// How much larger than the body text a short paragraph has to be to become a heading, per
-    /// level. Bold text at the body size stays a bold paragraph: documents use it for emphasis
-    /// as often as for headings.
-    static let headingLevels: [(scale: CGFloat, marker: String)] = [(1.5, "#"), (1.25, "##"), (1.1, "###")]
+    /// How much larger than the body text a short paragraph has to be to become a heading. Bold
+    /// text at the body size stays a bold paragraph: documents use it for emphasis as often as
+    /// for headings.
+    static let headingMinScale: CGFloat = 1.1
     /// Longer than this, it's a paragraph in big letters rather than a heading.
     static let headingMaxLength = 80
+    /// Heading levels go by rank, not by how much larger they are: the document's largest heading
+    /// size is #, the next ##, and every smaller one ###. Documents size their headings in very
+    /// different steps (HTML's h2 is 1.5 times the text, Word's Heading 2 1.2 times).
+    static let headingLevelCount = 3
 
     static func markdown(from text: NSAttributedString) -> String {
         let string = text.string as NSString
@@ -22,11 +26,17 @@ enum MarkdownWriter {
         ) { _, range, _, _ in paragraphs.append(range) }
 
         let body = mainSize(of: text, in: NSRange(location: 0, length: text.length))
+        let items = paragraphs.map { listItem(text, $0) }
+        let headingSizes = Set(
+            zip(paragraphs, items).compactMap { range, item in
+                item == nil ? headingSize(text, trimmed(range, in: string), body: body) : nil
+            }
+        ).sorted(by: >)
         var blocks: [(text: String, isItem: Bool)] = []
         // Per nesting level, how far the item above indents its text: where a nested item has to start.
         var indents: [Int] = []
-        for range in paragraphs {
-            if let item = listItem(text, range) {
+        for (range, item) in zip(paragraphs, items) {
+            if let item {
                 let content = trimmed(range, in: string, from: item.skip)
                 let line = lineStartsEscaped(inline(text, content))
                 guard !line.isEmpty else { continue }
@@ -38,7 +48,8 @@ enum MarkdownWriter {
             }
             indents = []
             let content = trimmed(range, in: string)
-            if let marker = headingMarker(text, content, body: body) {
+            if let size = headingSize(text, content, body: body), let rank = headingSizes.firstIndex(of: size) {
+                let marker = String(repeating: "#", count: min(rank + 1, headingLevelCount))
                 let line = lineStartsEscaped(inline(text, content, heading: true))
                 if !line.isEmpty { blocks.append((marker + " " + line, false)) }
             } else if let number = writtenNumber(string.substring(with: content)) {
@@ -95,11 +106,13 @@ enum MarkdownWriter {
         return counts.max { ($0.value, -$0.key) < ($1.value, -$1.key) }?.key ?? 12
     }
 
-    private static func headingMarker(_ text: NSAttributedString, _ range: NSRange, body: CGFloat) -> String? {
+    /// The paragraph's text size, to the half point, when it's a heading.
+    private static func headingSize(_ text: NSAttributedString, _ range: NSRange, body: CGFloat) -> CGFloat? {
         let line = (text.string as NSString).substring(with: range)
-        guard line.count <= headingMaxLength, !line.hasSuffix("."), !line.contains("\u{2028}") else { return nil }
+        guard !line.isEmpty, line.count <= headingMaxLength, !line.hasSuffix("."), !line.contains("\u{2028}")
+        else { return nil }
         let size = mainSize(of: text, in: range)
-        return headingLevels.first { size >= $0.scale * body }?.marker
+        return size >= headingMinScale * body ? (size * 2).rounded() / 2 : nil
     }
 
     /// A list item: its nesting level, its Markdown marker, and how much of the text its old marker takes up.

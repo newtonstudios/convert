@@ -42,6 +42,23 @@ struct MarkdownWriterTests {
             out == "# Title\n\n## Section\n\n### Detail\n\n\(body)\nBarely larger\n")
     }
 
+    @Test func headingLevelsGoByRank() {
+        // HTML without styles: h1 24, h2 18, h3 14, h4 at body size (not a heading).
+        let html = md(t("One\n", size: 24), t("Two\n", size: 18), t("Three\n", size: 14), t(body))
+        #expect(html == "# One\n\n## Two\n\n### Three\n\n\(body)")
+        // A fourth size is ### too; Markdown has more levels, but the steps get too small to tell apart.
+        let four = md(t("A\n", size: 30), t("B\n", size: 24), t("C\n", size: 18), t("D\n", size: 14), t(body))
+        #expect(four == "# A\n\n## B\n\n### C\n\n### D\n\n\(body)")
+    }
+
+    @Test func oneHeadingSizeIsTheTopLevel() {
+        // Word's Heading 2 alone (13 points with 11-point text) is still the document's top level.
+        let out = md(t("Intro\n", size: 13), t(body.replacingOccurrences(of: "\n", with: ""), size: 11), t("\n"))
+        #expect(out == "# Intro\n\n\(body)")
+        // Sizes a hair apart (the same font size measured twice in a PDF) are one level.
+        #expect(md(t("A\n", size: 20), t("B\n", size: 20.1), t(body)) == "# A\n\n# B\n\n\(body)")
+    }
+
     @Test func longOrFinishedSentencesAreNotHeadings() {
         let out = md(t("A big sentence.\n", size: 24), t(body))
         #expect(out == "A big sentence.\n\n\(body)")
