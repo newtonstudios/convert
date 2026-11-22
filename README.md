@@ -39,8 +39,8 @@ A small window opens showing only the formats that make sense for what you selec
 | 🎵 **Audio** (mp3, wav, opus, flac, m4a, ogg, …) | MP3, M4A (AAC), M4A (HE-AAC), WAV, AIFF, FLAC, ALAC, Opus, OGG, WMA, AC3, WavPack, MP2 |
 | 🎬 **Video** (mp4, mov, mkv, webm, avi, …) | MP4 (H.264 / HEVC / AV1), MOV (ProRes 422), WebM (VP9), MKV, animated GIF, **or any audio format** (pulls out the soundtrack) |
 | 🖼️ **Images** (heic, jpg, png, webp, tiff, raw, …) | JPEG, PNG, HEIC, AVIF, WebP, TIFF, GIF, BMP, PDF |
-| 📄 **Documents** (docx, doc, odt, rtf, html, txt, md) | PDF, Word (DOCX / DOC), ODT, RTF, plain text, HTML |
-| 📕 **PDF** | PNG or JPEG images (one per page), Word (DOCX), ODT, RTF or plain text (the text only, see below) |
+| 📄 **Documents** (docx, doc, odt, rtf, html, txt, md) | PDF, Word (DOCX / DOC), ODT, RTF, plain text, HTML, Markdown |
+| 📕 **PDF** | PNG or JPEG images (one per page), Word (DOCX), ODT, RTF, Markdown or plain text (the text only, see below) |
 | 🔤 **Fonts** (ttf, otf, ttc, woff, woff2) | WOFF2, WOFF (web fonts), TTF / OTF (desktop fonts) |
 
 **Settings** live under **Advanced** (collapsed until you open it; remembered per format):
@@ -120,6 +120,7 @@ Convert has no network code, no analytics and no accounts. It reads the files yo
 - **Markdown** covers the common syntax (headings, bold, italic, lists, task lists, tables, code, quotes, links). Footnotes, HTML inside Markdown and images aren't rendered.
 - **Excel and PowerPoint** files aren't supported (they'd need LibreOffice).
 - **PDF to Word** carries over text only (see above).
+- **Markdown export** guesses headings from the text size, and has no tables or images: a table's cells become paragraphs of their own.
 - **Fonts:** no conversion between TrueType and CFF outlines (a real TTF ↔ OTF conversion), and WOFF2 files that hold several fonts aren't read.
 - **Converting images** keeps only the first frame of an animated GIF or a multi-image HEIC.
 - The **downloaded** app isn't notarized by Apple (see the install notes above).
@@ -132,7 +133,7 @@ It's a small SwiftUI app (~4,300 lines) with no dependencies beyond what's on yo
 |---|---|
 | Audio & video | `ffmpeg`, using Apple's hardware encoders (VideoToolbox) for H.264, HEVC and ProRes, and the software encoders on Macs that lack one |
 | Images | Apple's ImageIO (plus `cwebp` for WebP) |
-| Documents | macOS's built-in `textutil`, a small built-in Markdown renderer, and AppKit's text system for PDF output (in a helper process, so a long document doesn't freeze the window) |
+| Documents | macOS's built-in `textutil`, a small built-in Markdown renderer and writer, and AppKit's text system for PDF output (in a helper process, so a long document doesn't freeze the window) |
 | PDF | Core Graphics and PDFKit |
 | Fonts | Built in: the font tables are read and rewrapped directly, with zlib for WOFF and Brotli for WOFF2. WOFF2 files come out smallest when the `brotli` tool is installed (it comes with ffmpeg from Homebrew); without it, macOS's own, lighter Brotli is used, and they're about a fifth larger (still smaller than WOFF) |
 
@@ -148,6 +149,7 @@ The Finder menu item is a tiny Automator Quick Action (`~/Library/Services/Conve
 | `Sources/Convert/DocConv.swift`, `PDFText.swift` | Document conversion, document → PDF, PDF → images/text/Word |
 | `Sources/Convert/FontConv.swift`, `SFNT.swift`, `WOFF.swift`, `WOFF2.swift` | Font conversion: TrueType/OpenType files, and the two web font wrappers |
 | `Sources/Convert/Markdown.swift` | Markdown → HTML |
+| `Sources/Convert/MarkdownWriter.swift` | Styled text → Markdown (documents and PDFs to Markdown) |
 | `Sources/Convert/ConvertModel.swift`, `ContentView.swift` | The window and its state |
 | `Sources/Convert/QuickAction.swift` | Installs/removes the Finder Quick Action |
 
@@ -173,7 +175,7 @@ scripts/check.sh build           # debug build and tests (warnings are errors), 
 scripts/check.sh smoke           # rebuild the release app, then run the conversion smoke test
 ```
 
-The **smoke test** (`scripts/smoke-test.sh`) generates small sample files (a hi-res WAV, a short video with sound, a PNG, Markdown, plain text, a PDF, two `.ts` files: TypeScript source and an MPEG transport stream, and fonts copied from the ones that come with macOS) and converts each one to every format the app offers for it. Any failed conversion fails the run and is listed by format ID. It needs `brew install ffmpeg webp`; without them, the formats that need them are skipped locally (CI treats that as a failure). Formats with hardware encoding (H.264, HEVC, ProRes, MKV) are also tested with it off; on a machine without a hardware encoder, the normal run checks that the app falls back to the software one.
+The **smoke test** (`scripts/smoke-test.sh`) generates small sample files (a hi-res WAV, a short video with sound, a PNG, Markdown, plain text, a Word file, a PDF, two `.ts` files: TypeScript source and an MPEG transport stream, and fonts copied from the ones that come with macOS) and converts each one to every format the app offers for it. Any failed conversion fails the run and is listed by format ID. It needs `brew install ffmpeg webp`; without them, the formats that need them are skipped locally (CI treats that as a failure). Formats with hardware encoding (H.264, HEVC, ProRes, MKV) are also tested with it off; on a machine without a hardware encoder, the normal run checks that the app falls back to the software one.
 
 You need Xcode 26.6 or its Command Line Tools: CI uses that version, and its `swift-format` (6.3) decides the formatting. With only the Command Line Tools, `build` and `smoke` use a native release build, since the universal app needs Xcode; CI builds and tests the universal app.
 
