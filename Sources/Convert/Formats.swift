@@ -85,11 +85,12 @@ enum FileTypes {
     ]
 
     /// Extensions macOS has no content type for (or files it under a different one), by kind.
+    /// WOFF is one of them since macOS 26.6.
     static let extraExtensions: [(kind: MediaKind, exts: Set<String>)] = [
         (.video, ["mkv", "webm", "avi", "flv", "wmv", "ts", "mts", "m2ts", "3gp", "ogv", "mxf", "vob"]),
         (.audio, ["mka", "opus", "ape", "wv", "tta", "dsf", "dff", "ac3", "dts", "amr", "mp2", "caf"]),
         (.document, ["md", "markdown"]),
-        (.font, ["woff2"]),
+        (.font, ["woff", "woff2"]),
     ]
 
     /// Every accepted content type identifier: what the Quick Action and the app bundle declare.

@@ -68,6 +68,27 @@
 				<string>public.font</string>
 			</array>
 			<key>UTTypeDescription</key>
+			<string>WOFF font</string>
+			<key>UTTypeIdentifier</key>
+			<string>org.w3c.woff</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>woff</string>
+				</array>
+				<key>public.mime-type</key>
+				<array>
+					<string>font/woff</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.font</string>
+			</array>
+			<key>UTTypeDescription</key>
 			<string>WOFF2 font</string>
 			<key>UTTypeIdentifier</key>
 			<string>org.w3c.woff2</string>
