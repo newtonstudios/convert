@@ -194,6 +194,14 @@ if perl -e 'alarm shift; exec @ARGV' "$TIMEOUT" "$BIN" --cli pdf-doc "$OUT/pdf-s
   cp "$OUT/pdf-sample/sample.pdf" "$SAMPLES/sample.pdf"
 fi
 
+# A Word file, also from the app (Markdown → DOCX), so Word input is read too, not just written.
+mkdir -p "$OUT/docx-sample"
+cp "$SAMPLES/sample.md" "$OUT/docx-sample/"
+if perl -e 'alarm shift; exec @ARGV' "$TIMEOUT" "$BIN" --cli docx "$OUT/docx-sample/sample.md" >"$OUT/docx-sample/output.log" 2>&1 \
+  && [[ -s "$OUT/docx-sample/sample.docx" ]]; then
+  cp "$OUT/docx-sample/sample.docx" "$SAMPLES/sample.docx"
+fi
+
 if [[ -n "$FFMPEG" ]]; then
   ff() { "$FFMPEG" -v error -y "$@"; }
   # Hi-res stereo WAV: 24-bit, 96 kHz.
@@ -250,7 +258,7 @@ fi
 # --- Conversions ----------------------------------------------------------------------
 
 NEEDS_FFMPEG=" sample.mp4 stream.ts sample.wav sample.png "
-for name in sample.mp4 stream.ts sample.wav sample.png sample.md sample.txt script.ts sample.pdf \
+for name in sample.mp4 stream.ts sample.wav sample.png sample.md sample.txt script.ts sample.docx sample.pdf \
   sample.ttf sample.ttc sample.woff sample.woff2; do
   sample="$SAMPLES/$name"
   # Ask the app which formats it offers for this file (same logic as the window). It may look
@@ -351,7 +359,7 @@ paper_check "pdf-doc:letter" '{"paperA4": false}' "612 792"
 # One conversion of every kind.
 
 RO="$OUT/read-only" FALLBACK="$OUT/fallback"
-RO_CASES="sample.png:jpg sample.wav:mp3 sample.mp4:gif sample.md:pdf-doc sample.txt:docx sample.pdf:pdf-png sample.pdf:pdf-txt sample.pdf:pdf-docx sample.ttf:font-woff2"
+RO_CASES="sample.png:jpg sample.wav:mp3 sample.mp4:gif sample.md:pdf-doc sample.txt:docx sample.txt:md sample.pdf:pdf-png sample.pdf:pdf-txt sample.pdf:pdf-docx sample.pdf:pdf-md sample.ttf:font-woff2"
 mkdir -p "$RO" "$FALLBACK"
 for pair in $RO_CASES; do
   [[ -f "$SAMPLES/${pair%%:*}" ]] && cp "$SAMPLES/${pair%%:*}" "$RO/"
