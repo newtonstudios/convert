@@ -63,6 +63,9 @@ and how to finish. It always ends with a list of what was removed and what, if a
 
 ## Making a release
 
+Releases are built and signed by GitHub Actions (see [Signed releases](#signed-releases)): publishing a
+release on GitHub is all it takes. To build a signed setup program on your own PC instead:
+
 ```powershell
 .\build.ps1 -Setup -CertificateThumbprint <thumbprint> -TimestampUrl <your certificate authority's timestamp server>
 ```
@@ -100,6 +103,39 @@ Convert installed either way, and the test certificate's trust entry.
 
 Even with a real certificate, Windows SmartScreen warns about a download from a publisher it hasn't
 seen often yet; that goes away as more people install it.
+
+### Signed releases
+
+Releases are signed through [SignPath Foundation](https://signpath.org), which provides free code
+signing for open-source projects (see the [code signing policy](../README.md#code-signing-policy)). The
+certificate belongs to SignPath Foundation and never leaves SignPath: GitHub Actions builds Convert,
+sends the files to SignPath, and gets them back signed once someone in the project approves the request
+there. `.github/workflows/windows-setup.yml` does this when a release is published (or when it is run by
+hand with **sign** ticked), in two signing requests, because the setup program contains the signed files:
+
+1. `build.ps1 -Publisher "<the certificate's subject>"` builds the app and the package with SignPath's
+   certificate as the publisher (Windows only registers a package whose publisher is the signer, letter
+   for letter). SignPath signs `Convert.exe`, `Convert.dll`, `Convert.Core.dll`, `Convert.Shell.dll`
+   and `Convert.msix` ([`signing/windows-app.xml`](signing/windows-app.xml)).
+2. `build.ps1 -SetupFrom out\app` packs the signed files into the setup program without building or
+   signing anything, and SignPath signs that ([`signing/windows-setup.xml`](signing/windows-setup.xml)).
+
+The workflow then checks every signature, installs the setup program on the runner, checks that
+**Convert…** made it into Explorer's menu, runs the smoke test, uninstalls, and attaches the setup program
+to the release as `Convert-setup.exe` (with its SHA-256). The release tag must be `v` plus `<Version>`
+in `Directory.Build.props`. Every file's product name is "Convert" and its product version exactly that
+version; SignPath refuses to sign anything else.
+
+The two XML files are copies of the artifact configurations in the SignPath project: SignPath uses its
+own, so change both together. The workflow reads its settings from the repository: the variables
+`SIGNPATH_ORGANIZATION_ID` and `SIGNPATH_PUBLISHER` (the certificate's subject exactly as Windows shows
+it, e.g. in `(Get-AuthenticodeSignature Convert.exe).SignerCertificate.Subject`), the secret
+`SIGNPATH_API_TOKEN`, and optionally `SIGNPATH_PROJECT_SLUG` (default `convert`) and
+`SIGNPATH_SIGNING_POLICY_SLUG` (default `release-signing`). Without `SIGNPATH_ORGANIZATION_ID` it
+builds an unsigned setup program, as before; pull requests never sign.
+
+The uninstaller inside the setup program isn't signed: Inno Setup signs it while it compiles, and
+SignPath can only sign the finished setup program.
 
 ## Privacy
 

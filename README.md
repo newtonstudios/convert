@@ -123,6 +123,19 @@ The same formats, settings and naming rules run on [Windows](windows/README.md) 
 
 Convert has no network code, no analytics and no accounts. It reads the files you give it and writes the converted files next to them (or to Downloads, when their folder is read-only). That's it.
 
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org).
+
+This covers the Windows version: the setup program (`Convert-setup.exe` on the [releases page](../../releases)), Convert's own programs in it (`Convert.exe`, `Convert.dll`, `Convert.Core.dll`, `Convert.Shell.dll`) and the small package that puts **Convert…** in Explorer's right-click menu (`Convert.msix`). They are built by GitHub Actions from the source code in this repository ([`.github/workflows/windows-setup.yml`](.github/workflows/windows-setup.yml)), and every signing request is approved by hand. Libraries made by others that Convert ships with (such as Magick.NET, PdfPig, Markdig, and Microsoft's WebView2 and Windows libraries) and .NET's COM host (`Convert.Shell.comhost.dll`) are not signed by us. How it works is in [windows/README.md](windows/README.md#signed-releases).
+
+Team roles:
+
+- **Committers and reviewers:** [@eliasdesena](https://github.com/eliasdesena) (everyone with write access to this repository). Changes from anyone else come in as pull requests and are reviewed by one of them before they are merged.
+- **Approvers:** [@eliasdesena](https://github.com/eliasdesena)
+
+**Privacy:** This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it. The one exception is the Windows setup program on a PC that doesn't have Microsoft's .NET 10 Desktop Runtime yet: it then downloads Microsoft's installer for it from `builds.dotnet.microsoft.com` (it says so on screen, and checks the download before running it). That download, and the .NET runtime and WebView2 (the part of Windows that Convert prints documents to PDF with, with its network access shut off), are Microsoft's, under the [Microsoft Privacy Statement](https://www.microsoft.com/privacy/privacystatement).
+
 ## Uninstall
 
 1. In Convert, choose **Convert → Remove Finder Quick Action** (or delete `~/Library/Services/Convert.workflow`).
