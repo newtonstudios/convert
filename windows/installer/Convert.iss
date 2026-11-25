@@ -33,8 +33,10 @@ DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-; Windows 11: the first with this kind of right-click menu.
-MinVersion=10.0.22000
+; Windows 10 version 2004: the first that registers a package with an external location (the menu
+; entry), and the version the app and its package are built for (Directory.Build.props, AppxManifest).
+; Windows 10 shows the entry in its one right-click menu, Windows 11 at the top of its new one.
+MinVersion=10.0.19041
 WizardStyle=modern
 SetupIconFile=..\packaging\Assets\Convert.ico
 UninstallDisplayIcon={app}\Convert.exe
