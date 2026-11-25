@@ -106,6 +106,8 @@ struct MarkdownWriterTests {
         #expect(md(t("> not a quote\n+ not a list")) == "\\> not a quote\n\n\\+ not a list\n")
         #expect(md(t("2024. A good year")) == "2024\\. A good year\n")
         #expect(md(t("*", code: true)) == "`*`\n")
+        #expect(md(t("<b>x</b> &copy; R&D ~~~")) == "\\<b>x\\</b> \\&copy; R\\&D \\~\\~\\~\n")
+        #expect(md(t("Title\u{2028}===")) == "Title\\\n\\===\n")
     }
 
     // MARK: Links

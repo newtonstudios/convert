@@ -261,21 +261,27 @@ enum MarkdownWriter {
     /// paragraph becomes Markdown's own line break.
     static func escaped(_ s: String) -> String {
         var out = ""
-        for c in s {
+        var rest = Substring(s)
+        while let c = rest.popFirst() {
             if c == "\u{2028}" {
                 out += "\\\n"
                 continue
             }
-            if "\\`*_[]".contains(c) { out.append("\\") }
+            // "<" starts HTML or an autolink, "~" a strikethrough or a code fence, and "&" before a
+            // name or "#" a character reference like &copy;.
+            if "\\`*_[]<~".contains(c) || (c == "&" && rest.first.map { $0.isLetter || $0 == "#" } == true) {
+                out.append("\\")
+            }
             out.append(c)
         }
         return out
     }
 
-    /// At the start of a line, "#", ">", "+", "-" and "1. " start a heading, quote or list.
+    /// At the start of a line, "#", ">", "+", "-" and "1. " start a heading, quote or list, and "="
+    /// under a line makes it a heading.
     static func lineStartsEscaped(_ s: String) -> String {
         s.components(separatedBy: "\n").map { line in
-            if let first = line.first, "#>+-".contains(first) { return "\\" + line }
+            if let first = line.first, "#>+-=".contains(first) { return "\\" + line }
             if let number = line.range(of: #"^[0-9]{1,9}(?=[.)](\s|$))"#, options: .regularExpression) {
                 return line[number] + "\\" + line[number.upperBound...]
             }
