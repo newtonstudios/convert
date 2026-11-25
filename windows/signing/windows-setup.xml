@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SignPath artifact configuration "windows-setup": the second signing request of a Windows release
+  (.github/workflows/windows-setup.yml). Paste this file into the SignPath project under that slug and keep
+  the two in step; SignPath uses its own copy, not this file.
+
+  The artifact is a ZIP holding only the setup program, which build.ps1 -SetupFrom made from the files the
+  first request ("windows-app") signed. "version" is <Version> in windows/Directory.Build.props.
+-->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <parameters>
+    <parameter name="version" required="true" />
+  </parameters>
+  <zip-file>
+    <pe-file path="Convert-${version}-setup.exe" product-name="Convert" product-version="${version}">
+      <authenticode-sign description="Convert setup" description-url="https://github.com/newtonstudios/convert" />
+    </pe-file>
+  </zip-file>
+</artifact-configuration>

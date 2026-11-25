@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SignPath artifact configuration "windows-app": the first of the two signing requests of a Windows release
+  (.github/workflows/windows-setup.yml). Paste this file into the SignPath project under that slug and keep
+  the two in step; SignPath uses its own copy, not this file.
+
+  The artifact is a ZIP of exactly these files, as build.ps1 -Publisher made them: Convert's own programs
+  and the sparse package. The libraries Convert uses (Magick.NET, PdfPig, Markdig, WebView2) and
+  Convert.Shell.comhost.dll (.NET's COM host, Microsoft's code) are not ours to sign and aren't in it.
+
+  The package's publisher (AppxManifest.xml and Convert.exe's <msix> element) must be the certificate's
+  subject letter for letter; the workflow passes it to build.ps1 from the SIGNPATH_PUBLISHER variable.
+  "version" is <Version> in windows/Directory.Build.props; every file must say so in its product version.
+-->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <parameters>
+    <parameter name="version" required="true" />
+  </parameters>
+  <zip-file>
+    <pe-file-set product-name="Convert" product-version="${version}">
+      <include path="Convert.exe" />
+      <include path="Convert.dll" />
+      <include path="Convert.Core.dll" />
+      <include path="Convert.Shell.dll" />
+      <for-each>
+        <authenticode-sign />
+      </for-each>
+    </pe-file-set>
+    <msix-file path="Convert.msix">
+      <authenticode-sign />
+    </msix-file>
+  </zip-file>
+</artifact-configuration>

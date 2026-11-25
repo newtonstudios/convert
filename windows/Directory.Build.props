@@ -10,6 +10,9 @@
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>false</SelfContained>
     <Version>0.4.0</Version>
+    <!-- The product version of every file is exactly <Version>, without "+<commit>": SignPath checks it
+         against the release's version when it signs (README.md, "Signed releases"). -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <Product>Convert</Product>
     <Company>Convert contributors</Company>
     <Copyright>MIT License</Copyright>
