@@ -19,35 +19,50 @@ enum ImageConv {
     }
 
     static func convert(_ input: URL, _ t: Target, _ s: ConvSettings, runner: Runner) throws -> URL {
+        let opaque = ["jpg", "bmp"].contains(t.id)
+        if SVG.isSVG(input) {
+            let drawing = try SVG.load(input)
+            // A PDF keeps the drawing as vectors; every other format gets pixels.
+            if t.id == "pdf-img" { return try save(input, t, runner) { try SVG.writePDF(drawing, to: $0) } }
+            let image = try SVG.render(drawing, maxSize: s.maxSize, flatten: opaque)
+            try runner.checkCancelled()
+            return try save(input, t, runner) { try encode(image, to: $0, t, s, metadata: [:]) }
+        }
         guard let src = CGImageSourceCreateWithURL(input as CFURL, nil), CGImageSourceGetCount(src) > 0 else {
             throw ConvertError("Couldn't read this image")
         }
-        let opaque = ["jpg", "bmp"].contains(t.id)
         let image = try render(src, maxSize: s.maxSize, flatten: opaque)
         try runner.checkCancelled()
+        let metadata = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any] ?? [:]
+        return try save(input, t, runner) { try encode(image, to: $0, t, s, metadata: metadata) }
+    }
+
+    /// Writes a new output file. Stopped or failed: no half-written or unwanted file stays behind.
+    private static func save(_ input: URL, _ t: Target, _ runner: Runner, _ write: (URL) throws -> Void) throws -> URL {
         let out = try uniqueOutput(for: input, ext: t.ext)
         do {
-            if t.id == "webp" {
-                try writeWebP(image, to: out, quality: s.imageQuality)
-            } else {
-                var props: [CFString: Any] = [:]
-                if t.isLossyImage { props[kCGImageDestinationLossyCompressionQuality] = s.imageQuality }
-                if t.id != "pdf-img", let meta = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any] {
-                    for key in [
-                        kCGImagePropertyExifDictionary, kCGImagePropertyIPTCDictionary, kCGImagePropertyGPSDictionary,
-                    ] {
-                        if let v = meta[key] { props[key] = v }
-                    }
-                }
-                try write(image, to: out, type: utType(t.id), label: t.label, props: props)
-            }
+            try write(out)
             try runner.checkCancelled()
         } catch {
-            // Stopped or failed: no half-written or unwanted file stays behind.
             try? FileManager.default.removeItem(at: out)
             throw error
         }
         return out
+    }
+
+    /// Encodes as the target format, keeping the source's EXIF, IPTC and GPS data (except in a PDF).
+    private static func encode(
+        _ image: CGImage, to out: URL, _ t: Target, _ s: ConvSettings, metadata: [CFString: Any]
+    ) throws {
+        if t.id == "webp" { return try writeWebP(image, to: out, quality: s.imageQuality) }
+        var props: [CFString: Any] = [:]
+        if t.isLossyImage { props[kCGImageDestinationLossyCompressionQuality] = s.imageQuality }
+        if t.id != "pdf-img" {
+            for key in [kCGImagePropertyExifDictionary, kCGImagePropertyIPTCDictionary, kCGImagePropertyGPSDictionary] {
+                if let v = metadata[key] { props[key] = v }
+            }
+        }
+        try write(image, to: out, type: utType(t.id), label: t.label, props: props)
     }
 
     static func write(_ image: CGImage, to out: URL, type: UTType?, label: String, props: [CFString: Any]) throws {
