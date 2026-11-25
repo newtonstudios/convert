@@ -85,6 +85,7 @@ enum FileTypes {
     ]
 
     /// Extensions macOS has no content type for (or files it under a different one), by kind.
+    /// WOFF is one of them since macOS 26.6.
     static let extraExtensions: [(kind: MediaKind, exts: Set<String>)] = [
         (.video, ["mkv", "webm", "avi", "flv", "wmv", "ts", "mts", "m2ts", "3gp", "ogv", "mxf", "vob"]),
         (.audio, ["mka", "opus", "ape", "wv", "tta", "dsf", "dff", "ac3", "dts", "amr", "mp2", "caf"]),
@@ -179,6 +180,7 @@ enum Targets {
                     ("rtf", "Rich Text (RTF)", "rtf"),
                     ("txt", "Plain Text", "txt"),
                     ("html", "HTML", "html"),
+                    ("md", "Markdown", "md"),
                 ])
             + t(
                 .pdfPages,
@@ -188,6 +190,7 @@ enum Targets {
                     ("pdf-docx", "Word (DOCX, text only)", "docx"),
                     ("pdf-odt", "OpenDocument (ODT, text only)", "odt"),
                     ("pdf-rtf", "Rich Text (RTF, text only)", "rtf"),
+                    ("pdf-md", "Markdown (text only)", "md"),
                     ("pdf-txt", "Plain Text", "txt"),
                 ])
             + t(
@@ -271,7 +274,7 @@ extension Target {
     var hasChannelOption: Bool { id != "ogg" }
 
     /// PDF → a text format: the words and their fonts, without pictures or page layout.
-    var isPDFText: Bool { ["pdf-txt", "pdf-docx", "pdf-odt", "pdf-rtf"].contains(id) }
+    var isPDFText: Bool { ["pdf-txt", "pdf-docx", "pdf-odt", "pdf-rtf", "pdf-md"].contains(id) }
 
     /// Whether the panel has anything to show under "Advanced" for this format.
     var hasSettings: Bool { !(group == .document && id != "pdf-doc") && !isPDFText && group != .font }
