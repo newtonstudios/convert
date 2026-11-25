@@ -79,7 +79,17 @@ Convert isn't signed with a paid Apple Developer certificate, so the first time 
 - **macOS 15 and later:** try to open it once, then go to **System Settings → Privacy & Security**, scroll down, click **Open Anyway** and confirm.
 - **macOS 14:** right-click `Convert.app` → **Open** → **Open**.
 
-**Option B: build it yourself** (needs Xcode 15.3 or later):
+**Option B: Homebrew.**
+
+```bash
+brew tap newtonstudios/tap
+brew trust newtonstudios/tap
+brew install --cask newtonstudios/tap/convert
+```
+
+The same "can't verify the developer" step as above applies the first time you open it.
+
+**Option C: build it yourself** (needs Xcode 15.3 or later):
 
 ```bash
 git clone https://github.com/newtonstudios/convert.git
