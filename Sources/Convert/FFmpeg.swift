@@ -153,6 +153,7 @@ enum FF {
             v += ["-c:v", "libsvtav1", "-crf", "\(Int((46 - q * 20).rounded()))", "-preset", "8"]
         default: break
         }
+        if evenSizeTargets.contains(t.id) { filters.append(evenSize) }
         if !filters.isEmpty { v += ["-vf", filters.joined(separator: ",")] }
 
         if s.keepAudio && p.hasAudio {
@@ -164,4 +165,14 @@ enum FF {
         if ["mp4", "mov"].contains(t.ext) { v += ["-movflags", "+faststart"] }
         return v
     }
+
+    /// Targets whose encoders store 4:2:0 chroma and refuse an odd width or height: libx264 and
+    /// libx265 fail ("Nothing was written into output file"), older SVT-AV1 builds too, and
+    /// VideoToolbox quietly drops the odd row/column. VP9 and ProRes take odd sizes as they are.
+    static let evenSizeTargets: Set<String> = ["mp4-h264", "mkv", "mp4-hevc", "mp4-av1"]
+
+    /// Trims an odd last row/column, after any scaling (a capped height can still be odd).
+    /// Cropping one pixel keeps the picture sharp where scaling would resample it, and is a
+    /// no-op for even sizes.
+    static let evenSize = "crop=trunc(iw/2)*2:trunc(ih/2)*2:0:0"
 }
