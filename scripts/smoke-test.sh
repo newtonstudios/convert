@@ -333,25 +333,28 @@ done
 # The paper size setting is respected, and nothing is logged along the way (a file given by
 # a relative path used to produce CFURL warnings).
 
-# macOS 26.6 rounds A4 to whole points, so the expected box can be a regex alternative.
-paper_check() {  # paper_check <label> <settings JSON> <expected MediaBox width and height, as a regex>
-  local label="$1" settings="$2" box="$3" dir="$RUNS/paper-$1" log
+# Sizes are compared in whole points, like the Windows smoke test: macOS 26 and later write A4
+# (595.28 × 841.89) as 595 × 842. The folder has no colon, which CI's artifact upload refuses.
+paper_check() {  # paper_check <label> <folder> <settings JSON> <expected size in whole points, WxH>
+  local label="$1" dir="$RUNS/$2" settings="$3" size="$4" log box got
   mkdir -p "$dir" && cp "$SAMPLES/sample.md" "$dir/"
   log="$dir/output.log"
   (cd "$dir" && CONVERT_SETTINGS="$settings" perl -e 'alarm shift; exec @ARGV' "$TIMEOUT" "$BIN" --cli pdf-doc sample.md) >"$log" 2>&1
   local status=$?
+  box="$(grep -a -o -m1 '/MediaBox \[0 0 [^]]*\]' "$dir/sample.pdf" 2>/dev/null)"
+  got="$(echo "$box" | awk '{gsub(/[][]/, ""); if (NF == 5) printf "%.0fx%.0f", $4, $5}')"
   if [[ $status -ne 0 ]] || grep -q '^FAIL' "$log"; then
     fail "$label" "sample.md" "$(grep -m1 '^FAIL' "$log" || tail -n1 "$log") (exit $status)"
-  elif ! grep -a -q -E "/MediaBox \[0 0 ($box)\]" "$dir/sample.pdf"; then
-    fail "$label" "sample.md" "wrong paper size: $(grep -a -o -m1 '/MediaBox \[[^]]*\]' "$dir/sample.pdf")"
+  elif [[ "$got" != "$size" ]]; then
+    fail "$label" "sample.md" "wrong paper size: ${box:-no MediaBox}, expected $size pt"
   elif grep -q -v '^OK ' "$log"; then
     fail "$label" "sample.md" "unexpected output: $(grep -v -m1 '^OK ' "$log")"
   else
-    pass "$label" "sample.md" "$(grep -a -o -m1 '/MediaBox \[[^]]*\]' "$dir/sample.pdf" | tr -d /), nothing logged"
+    pass "$label" "sample.md" "$box, nothing logged"
   fi
 }
-paper_check "pdf-doc:a4" '{"paperA4": true}' '595\.2756 841\.8898|595 842'
-paper_check "pdf-doc:letter" '{"paperA4": false}' "612 792"
+paper_check "pdf-doc:a4" "paper-a4" '{"paperA4": true}' "595x842"
+paper_check "pdf-doc:letter" "paper-letter" '{"paperA4": false}' "612x792"
 
 # --- Read-only source folder ----------------------------------------------------------
 # When the original's folder can't be written to, the output goes to a fallback folder

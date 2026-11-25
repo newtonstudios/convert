@@ -50,12 +50,15 @@ func runSync(_ exe: String, _ args: [String]) throws -> String {
     p.standardInput = FileHandle.nullDevice
     try p.run()
     // Both pipes are read at the same time. Read one after the other, a tool that fills the
-    // second pipe's buffer while we wait on the first would block for good.
+    // second pipe's buffer while we wait on the first would block for good. The second read gets
+    // a thread of its own: callers block a thread of a shared pool here, and once every thread of
+    // that pool is waiting, work queued to it never runs (CI's Mac has only 3 cores).
     let errBox = DataBox()
-    let errRead = DispatchGroup()
-    DispatchQueue.global().async(group: errRead) {
+    let errRead = DispatchSemaphore(value: 0)
+    Thread {
         errBox.append(err.fileHandleForReading.readDataToEndOfFile())
-    }
+        errRead.signal()
+    }.start()
     let data = out.fileHandleForReading.readDataToEndOfFile()
     errRead.wait()
     p.waitUntilExit()

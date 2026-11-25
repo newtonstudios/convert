@@ -96,6 +96,19 @@ final class ToolsTests {
         #expect(error?.message == "false failed")
     }
 
+    /// runSync blocks the thread it runs on, and tests run in parallel on a pool with one thread
+    /// per core (CI's Mac has 3). More calls at once than there are cores must still finish.
+    @Test(.timeLimit(.minutes(1)))
+    func moreCallsAtOnceThanCoresStillFinish() async throws {
+        let calls = ProcessInfo.processInfo.activeProcessorCount * 3
+        try await withThrowingTaskGroup(of: String.self) { group in
+            for _ in 0..<calls {
+                group.addTask { try runSync("/bin/sh", ["-c", "echo out; echo err >&2"]) }
+            }
+            for try await out in group { #expect(out == "out\n") }
+        }
+    }
+
     // MARK: ffmpeg progress
 
     private let report = """

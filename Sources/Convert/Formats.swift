@@ -61,7 +61,7 @@ enum MediaKind: String, CaseIterable {
 enum FileTypes {
     /// Content type identifiers by kind, in the order detection tries them
     /// (PDF and images before the broader audio/video types, documents last). macOS has no type
-    /// for WOFF2; the app bundle declares `org.w3c.woff2` itself.
+    /// for WOFF2, and newer versions none for WOFF; the app bundle declares both itself.
     static let accepted: [(kind: MediaKind, identifiers: [String])] = [
         (.pdf, ["com.adobe.pdf"]),
         (.image, ["public.image"]),

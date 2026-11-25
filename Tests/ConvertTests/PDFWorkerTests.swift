@@ -93,8 +93,10 @@ final class PDFWorkerTests {
 
     @Test(.timeLimit(.minutes(1)))
     func theMainThreadStaysFreeWhileTheHelperWorks() async throws {
-        // The helper takes a second. Meanwhile the main thread (the window) must answer right away.
-        let slow = try worker(#"sleep 1; echo pdf > "$3""#)
+        // The helper takes 3 seconds. Meanwhile the main thread (the window) must keep answering;
+        // waiting for the helper on it would hold it up for all 3. Other tests lay documents out on
+        // the main thread at the same time, which on CI's 3-core Mac costs up to 0.7 s here.
+        let slow = try worker(#"sleep 3; echo pdf > "$3""#)
         async let conversion: Void = DocConv.toPDF(input, out, a4: true, runner: Runner(), worker: slow)
         var worst = 0.0
         for _ in 0..<10 {
@@ -104,7 +106,7 @@ final class PDFWorkerTests {
             try await Task.sleep(for: .milliseconds(50))
         }
         try await conversion
-        #expect(worst < 0.5, "the main thread was held up for \(worst)s")
+        #expect(worst < 2, "the main thread was held up for \(worst)s")
         #expect(pdfExists)
     }
 }
