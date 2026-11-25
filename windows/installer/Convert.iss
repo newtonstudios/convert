@@ -1,4 +1,4 @@
-; The setup program for Convert (Inno Setup 6). Built by ..\build.ps1 -Setup, which passes in:
+; The setup program for Convert (Inno Setup 6). Built by ..\build.ps1 -Setup (or -SetupFrom), which passes in:
 ;   AppVersion        0.4.0
 ;   AppDir            the folder with the built app (out\app), Convert.msix included
 ;   OutDir            where the setup program goes
@@ -25,6 +25,9 @@ AppVerName=Convert {#AppVersion}
 AppPublisher=Convert contributors
 AppPublisherURL=https://github.com/newtonstudios/convert
 VersionInfoVersion={#AppVersion}
+; The product version as text, exactly AppVersion: SignPath checks it against the release's version
+; (README.md, "Signed releases"), like the one of the app's own files (Directory.Build.props).
+VersionInfoProductTextVersion={#AppVersion}
 ; The folder is fixed: the right-click menu entry is registered for exactly this place.
 DefaultDirName={localappdata}\Programs\Convert
 DisableDirPage=yes

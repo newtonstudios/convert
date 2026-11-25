@@ -1,16 +1,34 @@
-# Builds the Windows setup program (windows\build.ps1 -Setup), installs it on the runner and runs the
-# smoke test against the installed app, then keeps the setup program as an artifact for a release.
+# Builds the Windows setup program, installs it on the runner and runs the smoke test against the
+# installed app, then keeps the setup program as an artifact. For a published release it also attaches
+# it to the release as Convert-setup.exe.
 #
-# The setup program built here is unsigned: there is no code-signing certificate yet. It installs
-# Convert, but Windows refuses to add the right-click menu entry of an unsigned package, so people
-# open Convert from the Start menu and drop files on its window (see windows/README.md).
+# Signing (windows/README.md, "Signed releases"): for a release, and for a manual run with "sign"
+# ticked, SignPath signs the build in two requests once the SignPath variables and secret are set:
+#   1. build.ps1 -Publisher builds the app and the package for the SignPath certificate's subject;
+#      SignPath signs Convert's own programs and the package (windows/signing/windows-app.xml)
+#   2. build.ps1 -SetupFrom packs the signed files into the setup program; SignPath signs it
+#      (windows/signing/windows-setup.xml)
+# Each request waits for an approver in SignPath. Without SIGNPATH_ORGANIZATION_ID (pull requests never
+# sign) the setup program is built unsigned with build.ps1 -Setup, as before: it installs Convert, but
+# Windows refuses to add the right-click menu entry of an unsigned package.
 name: Windows setup
 
 on:
   pull_request:
     branches: [main]
     paths: ['.github/workflows/windows-setup.yml', 'windows/build.ps1', 'windows/installer/**']
+  release:
+    types: [published]
   workflow_dispatch:
+    inputs:
+      sign:
+        description: Have SignPath sign it (each of the two signing requests waits for approval in SignPath)
+        type: boolean
+        default: false
+      release-tag:
+        description: Attach it to this existing release, e.g. v0.4.1 (run the workflow from that tag)
+        type: string
+        default: ''
 
 concurrency:
   group: windows-setup-${{ github.event.pull_request.number || github.ref }}
@@ -38,7 +56,17 @@ jobs:
   setup:
     name: windows-setup
     runs-on: windows-2025
-    timeout-minutes: 45
+    # Signing waits for a person to approve each request in SignPath.
+    timeout-minutes: ${{ (github.event_name == 'release' || inputs.sign) && vars.SIGNPATH_ORGANIZATION_ID != '' && 300 || 45 }}
+    permissions:
+      contents: read
+      # The SignPath action reads this run's jobs and downloads the artifact it submits.
+      actions: read
+    env:
+      SIGN: ${{ (github.event_name == 'release' || inputs.sign) && vars.SIGNPATH_ORGANIZATION_ID != '' }}
+      # The certificate's subject, which the package must name as its publisher letter for letter.
+      PUBLISHER: ${{ vars.SIGNPATH_PUBLISHER }}
+      RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release-tag }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -50,6 +78,30 @@ jobs:
         env:
           # Not next to the runner's preinstalled SDKs, where a newer one would win over the pin.
           DOTNET_INSTALL_DIR: ${{ runner.temp }}\dotnet
+      # Before anything is built or sent for signing: the version, the release it is for, the settings.
+      - name: Check the version and the signing settings
+        env:
+          SIGN_REQUESTED: ${{ github.event_name == 'release' || inputs.sign }}
+          HAS_SIGNPATH_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
+        run: |
+          $node = ([xml](Get-Content -Raw windows\Directory.Build.props)).SelectSingleNode('/Project/PropertyGroup/Version')
+          $version = if ($node) { $node.InnerText.Trim() } else { '' }
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Couldn't read the version from windows\Directory.Build.props (got '$version')." }
+          "VERSION=$version" | Add-Content $env:GITHUB_ENV
+          if ($env:RELEASE_TAG) {
+            if ($env:RELEASE_TAG -ne "v$version") { throw "The release is $env:RELEASE_TAG, but windows\Directory.Build.props says $version. Bump <Version> there (and in the tag) so they match." }
+            if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch' -and $env:GITHUB_REF -ne "refs/tags/$env:RELEASE_TAG") { throw "Run the workflow from the tag $env:RELEASE_TAG (Use workflow from > Tags), not from $env:GITHUB_REF." }
+          }
+          if ($env:SIGN -eq 'true') {
+            if ($env:HAS_SIGNPATH_TOKEN -ne 'true') { throw 'SIGNPATH_ORGANIZATION_ID is set, but the secret SIGNPATH_API_TOKEN is not.' }
+            if (-not $env:PUBLISHER) { throw 'SIGNPATH_ORGANIZATION_ID is set, but SIGNPATH_PUBLISHER (the exact subject of the SignPath certificate) is not.' }
+            Write-Host "Version $version, signed by SignPath as $env:PUBLISHER"
+          } elseif ($env:SIGN_REQUESTED -eq 'true' -and $env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') {
+            throw 'Signing was asked for, but the repository variable SIGNPATH_ORGANIZATION_ID is not set.'
+          } else {
+            if ($env:GITHUB_EVENT_NAME -eq 'release') { Write-Host "::warning::SignPath isn't set up (SIGNPATH_ORGANIZATION_ID), so the setup program for $env:RELEASE_TAG is unsigned." }
+            Write-Host "Version $version, unsigned"
+          }
       - name: Install Inno Setup
         run: |
           $ProgressPreference = "SilentlyContinue"
@@ -64,15 +116,110 @@ jobs:
           Remove-Item $exe
           $iscc = Join-Path $env:LOCALAPPDATA "Programs\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { throw "ISCC.exe isn't at $iscc after installing Inno Setup" }
-      - name: Build the setup program
+
+      - name: Build the setup program (unsigned)
+        if: env.SIGN != 'true'
+        run: windows\build.ps1 -Setup
+
+      # --- signed: two SignPath requests ------------------------------------------------------------
+      - name: Build the app for signing
+        if: env.SIGN == 'true'
         run: |
-          windows\build.ps1 -Setup
+          windows\build.ps1 -Publisher $env:PUBLISHER
+          $stage = Join-Path $env:RUNNER_TEMP "unsigned-app"
+          New-Item -ItemType Directory -Force $stage | Out-Null
+          # Exactly the files windows/signing/windows-app.xml lists.
+          'Convert.exe', 'Convert.dll', 'Convert.Core.dll', 'Convert.Shell.dll' | ForEach-Object { Copy-Item (Join-Path windows\out\app $_) $stage }
+          Copy-Item windows\out\Convert.msix $stage
+      - name: Upload the app for signing
+        id: unsigned-app
+        if: env.SIGN == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: convert-windows-app-unsigned
+          path: ${{ runner.temp }}/unsigned-app
+          retention-days: 7
+          if-no-files-found: error
+      - name: Sign the app (SignPath; waits for approval)
+        if: env.SIGN == 'true'
+        uses: signpath/github-action-submit-signing-request@a2c5b60d9c75f073142b653c354b632eedce097b # v3.2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'convert' }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG || 'release-signing' }}
+          artifact-configuration-slug: windows-app
+          github-artifact-id: ${{ steps.unsigned-app.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 7200
+          output-artifact-directory: ${{ runner.temp }}/signed-app
+          parameters: |
+            version: ${{ toJSON(env.VERSION) }}
+      - name: Check the signed app and build the setup program from it
+        if: env.SIGN == 'true'
+        run: |
+          $signed = Join-Path $env:RUNNER_TEMP "signed-app"
+          foreach ($name in 'Convert.exe', 'Convert.dll', 'Convert.Core.dll', 'Convert.Shell.dll') {
+            $sig = Get-AuthenticodeSignature (Join-Path $signed $name)
+            if ($sig.Status -ne 'Valid') { throw "$name came back from SignPath with signature status $($sig.Status): $($sig.StatusMessage)" }
+            # The package names PUBLISHER as its publisher; Windows only registers it when that is the signer.
+            if ($sig.SignerCertificate.Subject -ne $env:PUBLISHER) { throw "$name is signed by '$($sig.SignerCertificate.Subject)', but SIGNPATH_PUBLISHER is '$env:PUBLISHER'. Set the variable to the certificate's subject exactly." }
+            if (-not $sig.TimeStamperCertificate) { throw "$name has no timestamp, so its signature would end with the certificate." }
+          }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = [IO.Compression.ZipFile]::OpenRead((Join-Path $signed 'Convert.msix'))
+          try { if (-not ($zip.Entries | Where-Object { $_.FullName -eq 'AppxSignature.p7x' })) { throw 'Convert.msix came back from SignPath without a signature.' } } finally { $zip.Dispose() }
+          # The signed files replace the unsigned ones; the package goes next to Convert.exe.
+          Copy-Item (Join-Path $signed '*') windows\out\app -Force
+          windows\build.ps1 -SetupFrom windows\out\app
+          $stage = Join-Path $env:RUNNER_TEMP "unsigned-setup"
+          New-Item -ItemType Directory -Force $stage | Out-Null
+          Copy-Item "windows\out\Convert-$env:VERSION-setup.exe" $stage
+      - name: Upload the setup program for signing
+        id: unsigned-setup
+        if: env.SIGN == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: convert-windows-setup-unsigned
+          path: ${{ runner.temp }}/unsigned-setup
+          retention-days: 7
+          if-no-files-found: error
+      - name: Sign the setup program (SignPath; waits for approval)
+        if: env.SIGN == 'true'
+        uses: signpath/github-action-submit-signing-request@a2c5b60d9c75f073142b653c354b632eedce097b # v3.2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'convert' }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG || 'release-signing' }}
+          artifact-configuration-slug: windows-setup
+          github-artifact-id: ${{ steps.unsigned-setup.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 7200
+          output-artifact-directory: ${{ runner.temp }}/signed-setup
+          parameters: |
+            version: ${{ toJSON(env.VERSION) }}
+      - name: Check the signed setup program
+        if: env.SIGN == 'true'
+        run: |
+          $name = "Convert-$env:VERSION-setup.exe"
+          $file = Join-Path $env:RUNNER_TEMP "signed-setup\$name"
+          $sig = Get-AuthenticodeSignature $file
+          if ($sig.Status -ne 'Valid') { throw "$name came back from SignPath with signature status $($sig.Status): $($sig.StatusMessage)" }
+          if ($sig.SignerCertificate.Subject -ne $env:PUBLISHER) { throw "$name is signed by '$($sig.SignerCertificate.Subject)', expected '$env:PUBLISHER'." }
+          if (-not $sig.TimeStamperCertificate) { throw "$name has no timestamp." }
+          Copy-Item $file "windows\out\$name" -Force
+      # ------------------------------------------------------------------------------------------------
+
+      - name: Describe the setup program
+        run: |
           $setup = Get-ChildItem windows\out\Convert-*-setup.exe
           if (@($setup).Count -ne 1) { throw "Expected one setup program in windows\out, found $(@($setup).Count)" }
           $hash = (Get-FileHash $setup.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  $($setup.Name)" | Set-Content (Join-Path $setup.DirectoryName "$($setup.Name).sha256") -Encoding ascii
           "SETUP=$($setup.FullName)" | Add-Content $env:GITHUB_ENV
-          Write-Host ("{0}: {1:N1} MB, SHA-256 {2}" -f $setup.Name, ($setup.Length / 1MB), $hash)
+          $signer = (Get-AuthenticodeSignature $setup.FullName).SignerCertificate
+          Write-Host ("{0}: {1:N1} MB, SHA-256 {2}, {3}" -f $setup.Name, ($setup.Length / 1MB), $hash, $(if ($signer) { "signed by $($signer.Subject)" } else { 'unsigned' }))
       # Nobody should be the first to run a download. If the runner has no .NET Desktop Runtime of the
       # right version, this also takes the path where the setup program fetches Microsoft's installer.
       - name: Install it here
@@ -84,6 +231,15 @@ jobs:
           $app = Join-Path $env:LOCALAPPDATA "Programs\Convert\Convert.exe"
           if (-not (Test-Path $app)) { Get-Content $log -Tail 60; throw "Convert.exe isn't at $app after the setup program ran" }
           Select-String -Path $log -Pattern "menu|\.NET|dotnet" -SimpleMatch:$false | Select-Object -Last 15 | ForEach-Object { $_.Line }
+      # What issue #24 is about: with a signed package Windows must accept the right-click menu entry.
+      - name: Check the menu entry
+        if: env.SIGN == 'true'
+        run: |
+          # Convert.exe is a windowed program: PowerShell waits for it only when its output is captured.
+          $answer = & "$env:LOCALAPPDATA\Programs\Convert\Convert.exe" --menu-status | Out-String
+          $code = $LASTEXITCODE
+          Write-Host $answer.Trim()
+          if ($code) { Get-Content (Join-Path $env:RUNNER_TEMP "setup.log") -Tail 60; throw "The signed setup program didn't add Convert to Explorer's right-click menu (--menu-status answered $code)." }
       # Without ffmpeg and LibreOffice the smoke test skips (and lists) what needs them; images, PDFs,
       # fonts and Markdown run with the installed app. windows.yml covers the rest on every change.
       - name: Smoke test the installed app
@@ -117,3 +273,35 @@ jobs:
             ${{ runner.temp }}/smoke
           retention-days: 7
           if-no-files-found: ignore
+
+  # Attaches the tested setup program to the release. The only job that can write to the repository,
+  # and it builds and runs nothing from it.
+  release:
+    name: windows-release-asset
+    needs: setup
+    if: github.event_name == 'release' || inputs.release-tag != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: convert-windows-setup
+          path: dist
+      - name: Attach Convert-setup.exe to the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release-tag }}
+        run: |
+          set -euo pipefail
+          cd dist
+          shopt -s nullglob
+          setups=(Convert-*-setup.exe)
+          if [ "${#setups[@]}" -ne 1 ]; then echo "Expected one setup program, found ${#setups[@]}" >&2; exit 1; fi
+          # The name the website and earlier releases link to.
+          mv "${setups[0]}" Convert-setup.exe
+          sha256sum Convert-setup.exe > Convert-setup.exe.sha256
+          cat Convert-setup.exe.sha256
+          gh release upload "$RELEASE_TAG" Convert-setup.exe Convert-setup.exe.sha256 --clobber --repo "$GITHUB_REPOSITORY"

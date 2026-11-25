@@ -12,6 +12,11 @@
                                       signed with your code-signing certificate
     .\build.ps1 -Setup -TestSign      the same, signed like -Install does it, to try the setup program on this PC
     .\build.ps1 -Setup                the same, unsigned: installs, but Windows won't add the menu entry
+    .\build.ps1 -Publisher <subject>  a plain build whose package and Convert.exe name <subject> as their
+                                      publisher, for files that are signed elsewhere (SignPath, see
+                                      README.md) with a certificate of exactly that subject
+    .\build.ps1 -SetupFrom <folder>   build the setup program from an app folder that is already built (and
+                                      signed), Convert.msix included; builds and signs nothing itself
 
   A plain build creates no certificate or key and needs no elevation, so it is safe for CI.
 
@@ -38,6 +43,8 @@ param(
     [switch]$TestSign,
     [string]$CertificateThumbprint,
     [string]$TimestampUrl,
+    [string]$Publisher,
+    [string]$SetupFrom,
     [ValidateSet('Release', 'Debug')]
     [string]$Configuration = 'Release'
 )
@@ -53,7 +60,17 @@ $Out = Join-Path $Root 'out'
 $AppOut = Join-Path $Out 'app'
 $PkgDir = Join-Path $Out 'pkg'
 $Msix = Join-Path $Out 'Convert.msix'
-$Publisher = $ConvertPublisher
+
+if ($SetupFrom -and ($Install -or $Setup -or $TestSign -or $CertificateThumbprint -or $TimestampUrl -or $Publisher)) {
+    throw '-SetupFrom goes alone: it only packs an app folder that is already built into a setup program.'
+}
+if ($Publisher -and ($Install -or $Setup)) {
+    throw '-Publisher goes with a plain build, for signing elsewhere: -Install and -Setup take the publisher from the certificate they sign with.'
+}
+# Windows compares the package's publisher with the certificate's subject letter for letter, so it is
+# taken as given, only checked for being a subject at all.
+if ($Publisher -and $Publisher -notmatch '(^|, )CN=[^,]') { throw "-Publisher must be a certificate subject such as `"CN=Example, O=Example, C=US`", not '$Publisher'." }
+if (-not $Publisher) { $Publisher = $ConvertPublisher }
 
 if ($Install -and $Setup) { throw 'Use -Install or -Setup, not both: -Install puts this build on this PC, -Setup makes the setup program that does that anywhere.' }
 if (($TestSign -or $CertificateThumbprint -or $TimestampUrl) -and -not $Setup) { throw '-TestSign, -CertificateThumbprint and -TimestampUrl go with -Setup.' }
@@ -227,6 +244,88 @@ function Get-SdkTools {
     }
 }
 
+# <Version> in Directory.Build.props, as MSBuild evaluates it for Convert.exe.
+function Get-AppVersion {
+    $r = Invoke-Native $dotnet @('msbuild', (Join-Path $Root 'src\Convert\Convert.csproj'), '-getProperty:Version', '-nologo')
+    $v = $r.Output.Trim()
+    if ($r.ExitCode -ne 0 -or $v -notmatch '^(\d+)\.(\d+)\.(\d+)(\.(\d+))?$') {
+        throw "Couldn't read the version from Directory.Build.props (got '$v'$(if ($r.Error) { ": $($r.Error.Trim())" })). It must look like 1.2.3."
+    }
+    return $v
+}
+
+# --- setup program -----------------------------------------------------------------------------------
+
+# Signs files with the certificate in use: $SignArguments is everything signtool needs before the file names.
+function Invoke-Sign([string[]]$Files) {
+    $r = Invoke-Native $sdk.SignTool (@($SignArguments) + $Files)
+    if ($r.ExitCode -ne 0) { throw "signtool failed (exit code $($r.ExitCode)):`n$($r.Output)$($r.Error)" }
+}
+
+function Find-InnoSetup {
+    $candidates = @(
+        (Join-Path (Get-LocalAppDataDir) 'Programs\Inno Setup 6\ISCC.exe'),
+        (Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFilesX86)) 'Inno Setup 6\ISCC.exe'),
+        (Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles)) 'Inno Setup 6\ISCC.exe'))
+    foreach ($c in $candidates) { if ([IO.File]::Exists($c)) { return $c } }
+    $cmd = Get-Command ISCC -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($cmd) { return $cmd.Source }
+    throw 'Inno Setup 6 not found. Install it (winget install JRSoftware.InnoSetup) and run this again.'
+}
+
+# Builds out\Convert-<version>-setup.exe from $AppOut. Signs what it makes when a certificate is in use.
+# With -SetupFrom, $AppOut is that folder and already holds its (signed) Convert.msix.
+function New-SetupProgram {
+    $iscc = Find-InnoSetup
+    Write-Step 'Building the setup program'
+    if ($SignArguments) {
+        # Our own programs; the libraries Convert uses carry their makers' signatures.
+        Invoke-Sign @('Convert.exe', 'Convert.dll', 'Convert.Core.dll', 'Convert.Shell.dll', 'Convert.Shell.comhost.dll' | ForEach-Object { Join-Path $AppOut $_ })
+    }
+    # The package travels with the app: Convert.exe --register-menu registers the one next to it.
+    if (-not $SetupFrom) { Copy-Item -LiteralPath $Msix -Destination (Join-Path $AppOut 'Convert.msix') -Force }
+    $isccArgs = @("/DAppVersion=$version", "/DAppDir=$AppOut", "/DOutDir=$Out",
+        "/DDotNetVersion=$DesktopRuntimeVersion", "/DDotNetSha256=$($DesktopRuntimeSha256.ToLowerInvariant())", '/Qp')
+    if ($SignArguments) {
+        # Inno Setup signs the uninstaller and the setup program itself with this command ($q is a quote, $f the file).
+        $isccArgs += '/DSign'
+        $isccArgs += '/Sconvertsign=$q' + $sdk.SignTool + '$q ' + (($SignArguments | ForEach-Object { if ($_ -match '\s') { '$q' + $_ + '$q' } else { $_ } }) -join ' ') + ' $f'
+    }
+    $isccArgs += (Join-Path $Root 'installer\Convert.iss')
+    $r = Invoke-Native $iscc $isccArgs -TimeoutSeconds 1800
+    if ($r.ExitCode -ne 0) { throw "Inno Setup failed (exit code $($r.ExitCode)):`n$($r.Output)$($r.Error)" }
+    $setup = Join-Path $Out "Convert-$version-setup.exe"
+    if (-not [IO.File]::Exists($setup)) { throw "Inno Setup reported success, but $setup isn't there.`n$($r.Output)" }
+    return $setup
+}
+
+$SignArguments = $null
+
+# --- setup program from a finished app folder (-SetupFrom) -------------------------------------------
+
+# The second half of a release signed elsewhere: build.ps1 -Publisher made out\app and the package, the
+# app's files and the package were signed, and the signed files are back in one folder. The setup
+# program made here is unsigned; it is signed elsewhere in turn.
+if ($SetupFrom) {
+    $dotnet = Find-Dotnet
+    $AppOut = [IO.Path]::GetFullPath($SetupFrom).TrimEnd('\')
+    foreach ($f in 'Convert.exe', 'Convert.Shell.comhost.dll', 'Convert.msix') {
+        if (-not [IO.File]::Exists((Join-Path $AppOut $f))) { throw "$f isn't in $AppOut. -SetupFrom needs a whole app folder (out\app of build.ps1) with the package in it." }
+    }
+    # Without a signature Windows refuses the package; the setup program would install, but without the menu entry.
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $zip = [IO.Compression.ZipFile]::OpenRead((Join-Path $AppOut 'Convert.msix'))
+    try { $signed = [bool]($zip.Entries | Where-Object { $_.FullName -eq 'AppxSignature.p7x' }) } finally { $zip.Dispose() }
+    if (-not $signed) { Write-Warning "$AppOut\Convert.msix isn't signed: the setup program installs Convert, but Windows won't add the menu entry." }
+    $version = Get-AppVersion
+    [void][IO.Directory]::CreateDirectory($Out)
+    $SetupProgram = New-SetupProgram
+    Write-Host ''
+    Write-Host ("Built {0} ({1:N1} MB, unsigned)" -f $SetupProgram, ((Get-Item -LiteralPath $SetupProgram).Length / 1MB)) -ForegroundColor Green
+    Write-Host "SHA-256: $((Get-FileHash -LiteralPath $SetupProgram -Algorithm SHA256).Hash)"
+    return
+}
+
 # --- build -------------------------------------------------------------------------------------------
 
 $dotnet = Find-Dotnet
@@ -291,11 +390,7 @@ if ($r.ExitCode -ne 0 -or $extensions.Count -eq 0 -or $bad.Count -gt 0) {
 if (@($extensions | Select-Object -Unique).Count -ne $extensions.Count) { throw "Convert.exe --list-extensions listed an extension twice." }
 
 # The package version follows <Version> in Directory.Build.props (as MSBuild evaluates it for Convert.exe).
-$r = Invoke-Native $dotnet @('msbuild', (Join-Path $Root 'src\Convert\Convert.csproj'), '-getProperty:Version', '-nologo')
-$version = $r.Output.Trim()
-if ($r.ExitCode -ne 0 -or $version -notmatch '^(\d+)\.(\d+)\.(\d+)(\.(\d+))?$') {
-    throw "Couldn't read the version from Directory.Build.props (got '$version'$(if ($r.Error) { ": $($r.Error.Trim())" })). It must look like 1.2.3."
-}
+$version = Get-AppVersion
 $parts = @($version.Split('.') | ForEach-Object { [int]$_ })
 while ($parts.Count -lt 4) { $parts += 0 }
 if (@($parts | Where-Object { $_ -gt 65535 }).Count) { throw "Version $version can't be a package version (each part must be at most 65535)." }
@@ -342,55 +437,17 @@ if ($r.ExitCode -ne 0) { throw "makeappx failed (exit code $($r.ExitCode)):`n$($
 if (-not $Install -and -not $Setup) {
     Write-Host ''
     Write-Host "Built $Msix (unsigned: no certificate was created or used)." -ForegroundColor Green
-    Write-Host 'Run .\build.ps1 -Install to sign it, install Convert and add it to the context menu.'
+    if ($Publisher -ne $ConvertPublisher) {
+        Write-Host "Its publisher is $Publisher. Sign it and the app's own files in out\app with the certificate of exactly"
+        Write-Host 'that subject, put the signed Convert.msix into out\app, and run .\build.ps1 -SetupFrom out\app.'
+    } else {
+        Write-Host 'Run .\build.ps1 -Install to sign it, install Convert and add it to the context menu.'
+    }
     return
 }
 
 # --- signing (with -Install, and with -Setup when asked for) -----------------------------------------
 
-# Signs files with the certificate in use: $SignArguments is everything signtool needs before the file names.
-function Invoke-Sign([string[]]$Files) {
-    $r = Invoke-Native $sdk.SignTool (@($SignArguments) + $Files)
-    if ($r.ExitCode -ne 0) { throw "signtool failed (exit code $($r.ExitCode)):`n$($r.Output)$($r.Error)" }
-}
-
-function Find-InnoSetup {
-    $candidates = @(
-        (Join-Path (Get-LocalAppDataDir) 'Programs\Inno Setup 6\ISCC.exe'),
-        (Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFilesX86)) 'Inno Setup 6\ISCC.exe'),
-        (Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles)) 'Inno Setup 6\ISCC.exe'))
-    foreach ($c in $candidates) { if ([IO.File]::Exists($c)) { return $c } }
-    $cmd = Get-Command ISCC -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($cmd) { return $cmd.Source }
-    throw 'Inno Setup 6 not found. Install it (winget install JRSoftware.InnoSetup) and run this again.'
-}
-
-# Builds out\Convert-<version>-setup.exe from out\app. Signs what it makes when a certificate is in use.
-function New-SetupProgram {
-    $iscc = Find-InnoSetup
-    Write-Step 'Building the setup program'
-    if ($SignArguments) {
-        # Our own programs; the libraries Convert uses carry their makers' signatures.
-        Invoke-Sign @('Convert.exe', 'Convert.dll', 'Convert.Core.dll', 'Convert.Shell.dll', 'Convert.Shell.comhost.dll' | ForEach-Object { Join-Path $AppOut $_ })
-    }
-    # The package travels with the app: Convert.exe --register-menu registers the one next to it.
-    Copy-Item -LiteralPath $Msix -Destination (Join-Path $AppOut 'Convert.msix') -Force
-    $isccArgs = @("/DAppVersion=$version", "/DAppDir=$AppOut", "/DOutDir=$Out",
-        "/DDotNetVersion=$DesktopRuntimeVersion", "/DDotNetSha256=$($DesktopRuntimeSha256.ToLowerInvariant())", '/Qp')
-    if ($SignArguments) {
-        # Inno Setup signs the uninstaller and the setup program itself with this command ($q is a quote, $f the file).
-        $isccArgs += '/DSign'
-        $isccArgs += '/Sconvertsign=$q' + $sdk.SignTool + '$q ' + (($SignArguments | ForEach-Object { if ($_ -match '\s') { '$q' + $_ + '$q' } else { $_ } }) -join ' ') + ' $f'
-    }
-    $isccArgs += (Join-Path $Root 'installer\Convert.iss')
-    $r = Invoke-Native $iscc $isccArgs -TimeoutSeconds 1800
-    if ($r.ExitCode -ne 0) { throw "Inno Setup failed (exit code $($r.ExitCode)):`n$($r.Output)$($r.Error)" }
-    $setup = Join-Path $Out "Convert-$version-setup.exe"
-    if (-not [IO.File]::Exists($setup)) { throw "Inno Setup reported success, but $setup isn't there.`n$($r.Output)" }
-    return $setup
-}
-
-$SignArguments = $null
 $SetupProgram = $null
 $singleUse = $Install -or $TestSign
 
