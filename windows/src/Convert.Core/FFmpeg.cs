@@ -115,6 +115,19 @@ public static class FF
 
     // Video
 
+    /// <summary>
+    /// Targets whose encoders store 4:2:0 chroma and need an even width and height: libx264 and libx265
+    /// fail on odd sizes ("Nothing was written into output file"), as do older SVT-AV1 builds, and GPU
+    /// encoders can refuse them or drop the odd row/column. VP9 and ProRes take odd sizes as they are.
+    /// </summary>
+    public static readonly IReadOnlySet<string> EvenSizeTargets = new HashSet<string> { "mp4-h264", "mkv", "mp4-hevc", "mp4-av1" };
+
+    /// <summary>
+    /// Trims an odd last row/column, after any scaling (a capped height can still be odd). Cropping
+    /// one pixel keeps the picture sharp where scaling would resample it, and is a no-op for even sizes.
+    /// </summary>
+    public const string EvenSize = "crop=trunc(iw/2)*2:trunc(ih/2)*2:0:0";
+
     public static List<string> VideoArgs(Target t, ConvSettings s, Probe p)
     {
         var q = Math.Clamp(s.VideoQuality, 0, 1);
@@ -169,6 +182,7 @@ public static class FF
                 v.AddRange(["-c:v", "libsvtav1", "-crf", $"{Crf(46, 20)}", "-preset", "8"]);
                 break;
         }
+        if (EvenSizeTargets.Contains(t.Id)) filters.Add(EvenSize);
         if (filters.Count > 0) v.AddRange(["-vf", string.Join(",", filters)]);
 
         if (s.KeepAudio && p.HasAudio)

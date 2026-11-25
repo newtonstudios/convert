@@ -38,7 +38,7 @@ A small window opens showing only the formats that make sense for what you selec
 |---|---|
 | 🎵 **Audio** (mp3, wav, opus, flac, m4a, ogg, …) | MP3, M4A (AAC), M4A (HE-AAC), WAV, AIFF, FLAC, ALAC, Opus, OGG, WMA, AC3, WavPack, MP2 |
 | 🎬 **Video** (mp4, mov, mkv, webm, avi, …) | MP4 (H.264 / HEVC / AV1), MOV (ProRes 422), WebM (VP9), MKV, animated GIF, **or any audio format** (pulls out the soundtrack) |
-| 🖼️ **Images** (heic, jpg, png, webp, tiff, raw, …) | JPEG, PNG, HEIC, AVIF, WebP, TIFF, GIF, BMP, PDF |
+| 🖼️ **Images** (heic, jpg, png, webp, tiff, raw, svg, …) | JPEG, PNG, HEIC, AVIF, WebP, TIFF, GIF, BMP, PDF |
 | 📄 **Documents** (docx, doc, odt, rtf, html, txt, md) | PDF, Word (DOCX / DOC), ODT, RTF, plain text, HTML, Markdown |
 | 📕 **PDF** | PNG or JPEG images (one per page), Word (DOCX), ODT, RTF, Markdown or plain text (the text only, see below) |
 | 🔤 **Fonts** (ttf, otf, ttc, woff, woff2) | WOFF2, WOFF (web fonts), TTF / OTF (desktop fonts) |
@@ -132,7 +132,7 @@ It's a small SwiftUI app (~4,300 lines) with no dependencies beyond what's on yo
 | Kind | Engine |
 |---|---|
 | Audio & video | `ffmpeg`, using Apple's hardware encoders (VideoToolbox) for H.264, HEVC and ProRes, and the software encoders on Macs that lack one |
-| Images | Apple's ImageIO (plus `cwebp` for WebP) |
+| Images | Apple's ImageIO (plus `cwebp` for WebP); SVG drawings are drawn by AppKit, without loading anything they point to |
 | Documents | macOS's built-in `textutil`, a small built-in Markdown renderer and writer, and AppKit's text system for PDF output (in a helper process, so a long document doesn't freeze the window) |
 | PDF | Core Graphics and PDFKit |
 | Fonts | Built in: the font tables are read and rewrapped directly, with zlib for WOFF and Brotli for WOFF2. WOFF2 files come out smallest when the `brotli` tool is installed (it comes with ffmpeg from Homebrew); without it, macOS's own, lighter Brotli is used, and they're about a fifth larger (still smaller than WOFF) |
@@ -145,7 +145,7 @@ The Finder menu item is a tiny Automator Quick Action (`~/Library/Services/Conve
 | `Sources/Convert/Sniff.swift` | Looks inside a file when its name can't be trusted (`.ts`, misnamed files) |
 | `Sources/Convert/Converter.swift`, `Process.swift` | Runs one conversion; external tools, Stop, where output goes |
 | `Sources/Convert/FFmpeg.swift` | ffmpeg arguments for each audio/video format |
-| `Sources/Convert/ImageConv.swift` | Image conversion |
+| `Sources/Convert/ImageConv.swift`, `SVG.swift` | Image conversion; SVG drawings |
 | `Sources/Convert/DocConv.swift`, `PDFText.swift` | Document conversion, document → PDF, PDF → images/text/Word |
 | `Sources/Convert/FontConv.swift`, `SFNT.swift`, `WOFF.swift`, `WOFF2.swift` | Font conversion: TrueType/OpenType files, and the two web font wrappers |
 | `Sources/Convert/Markdown.swift` | Markdown → HTML |
