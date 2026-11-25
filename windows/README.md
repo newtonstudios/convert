@@ -3,15 +3,15 @@
 The Windows version of Convert. Right-click files in Explorer → **Convert…** → pick a format → the new
 file lands next to the original. Everything runs on your PC; nothing is uploaded.
 
-It sits directly in the Windows 11 context menu (not under "Show more options"), and the window follows
-your light or dark theme and accent colour.
+On Windows 11 it sits directly in the context menu (not under "Show more options"); on Windows 10 it is
+in the usual right-click menu. The window follows your light or dark theme and accent colour.
 
 It does what the Mac app does at version 0.4 (see the [main README](../README.md) for the formats and
 settings), with the differences listed under [Differences from the Mac app](#differences-from-the-mac-app).
 
 ## Requirements
 
-- Windows 11 (x64)
+- Windows 11, or Windows 10 version 2004 or later (x64). Windows 10 has been tested less.
 - The [.NET 10 SDK](https://dotnet.microsoft.com/download) to build: `winget install Microsoft.DotNet.SDK.10`
 - **ffmpeg** for audio and video: `winget install Gyan.FFmpeg`
   (or put `ffmpeg.exe` and `ffprobe.exe` in `windows\tools\ffmpeg\`, and `build.ps1` bundles them)
