@@ -1,0 +1,63 @@
+# Every step runs linux/check.sh, so `linux/check.sh` locally checks the same things.
+name: Linux
+
+on:
+  pull_request:
+    branches: [main]
+    paths: ['linux/**', '.github/workflows/linux.yml']
+  push:
+    branches: [main]
+    paths: ['linux/**', '.github/workflows/linux.yml']
+  workflow_dispatch:
+
+# A new push to a PR cancels that PR's older run; pushes are never cancelled. The group name differs
+# from ci.yml's and windows.yml's, so the workflows don't cancel each other.
+concurrency:
+  group: linux-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: linux-check
+    # Pinned rather than ubuntu-latest, like ci.yml's macos-26, so the image (and what's preinstalled
+    # on it) only changes when we bump it.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the tools the formats use
+        # ffmpeg: audio and video. ImageMagick: images. poppler-utils: PDFs. webp: cwebp.
+        # librsvg2-bin: rsvg-convert, which draws SVG.
+        # LibreOffice: Word, ODT, RTF and PDF from documents. fontTools: fonts.
+        # The browser is left out on purpose: a runner has no Chromium in apt, and everything that
+        # would use it has a LibreOffice path that CI does cover.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ffmpeg imagemagick poppler-utils webp librsvg2-bin libreoffice-writer fonts-dejavu-core
+          python3 -m pip install --user fonttools brotli
+          # ImageMagick's policy XML denies PDF in some images; report it rather than hide the
+          # failure. Convert hides the format when it can't write, so this is information only.
+          magick -size 2x2 xc:white /tmp/probe.png 2>/dev/null || convert -size 2x2 xc:white /tmp/probe.png
+          magick /tmp/probe.png /tmp/probe.pdf 2>&1 | tail -2 || true
+
+      - name: Syntax check and unit tests
+        run: linux/check.sh unit
+
+      - name: Smoke test (every format, no skips allowed)
+        run: linux/check.sh smoke --strict --out "$RUNNER_TEMP/smoke"
+
+      - name: Upload smoke test samples and logs
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux-smoke-test
+          path: ${{ runner.temp }}/smoke
+          retention-days: 7
+          if-no-files-found: ignore

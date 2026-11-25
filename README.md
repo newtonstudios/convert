@@ -104,6 +104,11 @@ If it doesn't show up, check **System Settings → General → Login Items & Ext
 - macOS 14 Sonoma or later, on Apple Silicon or Intel
 - `ffmpeg` for audio and video, `cwebp` for WebP (see above)
 
+## Other platforms
+
+The same formats, settings and naming rules run on [Windows](windows/README.md) and on
+[Linux](linux/README.md), where they use the tools your distribution already has.
+
 ## Privacy
 
 Convert has no network code, no analytics and no accounts. It reads the files you give it and writes the converted files next to them (or to Downloads, when their folder is read-only). That's it.

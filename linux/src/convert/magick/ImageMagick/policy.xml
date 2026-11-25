@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Convert's ImageMagick policy. tools.magick_env() points XDG_CONFIG_HOME at the folder above this
+  one and HOME at the same folder, so for every ImageMagick call Convert makes, this file is the LAST
+  policy.xml ImageMagick reads: after the system's (/etc/ImageMagick-6 or -7), and with no
+  ~/.config/ImageMagick or ~/.magick read after it. ImageMagick 6 and 7 both evaluate policies "last
+  match wins", so nothing loaded later can loosen these rules.
+
+  It only ever denies. A rule that allowed something would override the system policy for that
+  pattern, and loosen what an administrator chose; with denials only, the result is always the
+  system's policy or tighter.
+
+  What it denies is what the Windows port's ImageConv.cs denies (except writing PDF, which the
+  "PDF" image target needs; reading a PDF never reaches ImageMagick, see images.py):
+  external programs, filters, indirect "@file" and "|pipe" names, and every coder that can reach the
+  network, read another file, or draw what a file tells it to (SVG, MVG, MSL, text).
+-->
+<policymap>
+  <policy domain="delegate" rights="none" pattern="*"/>
+  <policy domain="filter" rights="none" pattern="*"/>
+  <policy domain="path" rights="none" pattern="@*"/>
+  <policy domain="path" rights="none" pattern="|*"/>
+  <policy domain="coder" rights="none" pattern="{MSL,MVG,SVG,SVGZ,MSVG,RSVG,URL,FILE,HTTP,HTTPS,FTP,EPHEMERAL,INLINE,TEXT,TXT,LABEL,CAPTION,PANGO,SCRIPT,VID,SCR,X,SHOW,WIN,CLIPBOARD,SCREENSHOT,MPR,MPRI,PS,PS2,PS3,EPS,EPSF,EPSI,EPI,EPT,AI,XPS,PCL}"/>
+  <policy domain="module" rights="none" pattern="{MSL,MVG,SVG,URL,EPHEMERAL,INLINE,TXT,TEXT,LABEL,CAPTION,PANGO,SCRIPT,VID,SCR,X,SHOW,WIN,CLIPBOARD,SCREENSHOT,MPR,PS,PS2,PS3,EPT,XPS,PCL}"/>
+</policymap>

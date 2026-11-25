@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Service
+X-KDE-ServiceTypes=KonqPopupMenu/Plugin
+MimeType=image/*;audio/*;video/*;font/*;text/*;application/pdf;application/postscript;application/rtf;application/msword;application/vnd.openxmlformats-officedocument.wordprocessingml.document;application/vnd.oasis.opendocument.text;application/x-font-ttf;application/x-font-otf;application/x-font-woff;application/vnd.ms-opentype;application/x-cbr;
+Actions=convert;
+X-KDE-Priority=TopLevel
+
+[Desktop Action convert]
+Name=Convert…
+Icon=convert
+Exec="__CONVERT__" --ui %F

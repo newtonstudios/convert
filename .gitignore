@@ -5,5 +5,9 @@ build/
 # One-off demo/trailer tooling and its captures: kept locally, not part of the app
 demo/
 
+# Python bytecode (the Linux port)
+__pycache__/
+*.pyc
+
 # Claude Code worktrees
 .claude/worktrees/
